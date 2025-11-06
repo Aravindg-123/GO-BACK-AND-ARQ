@@ -1,45 +1,39 @@
-// js/app.js — Go-Back-N ARQ Visual Simulator (Light Theme, Final)
+// js/app.js — Go-Back-N ARQ Visual Simulator (Light Theme, Fixed)
 // Created by Sunesh Krishnan N & Aravind G | Guided by Dr. Swaminathan Annadurai
-// Features:
-// • True Go-Back-N: window N, pipelined sends, timeout → retransmit base..nextSeq-1
-// • ACK only after arrival
-// • Animations are PAUSABLE (lines + bubbles) with Pause/Resume logs
-// • Step mode: one full frame cycle incl. retransmissions (faster @ 4s)
-// • Strict dropdown visibility for Specific/Every-k/Delay fields
-// • Packet bubbles with tooltips; Palette A: Blue=Frame, Green=ACK, Red=Lost
+// Fixes:
+// • Strict dropdown visibility works (adds .hidden CSS)
+// • Pause/Resume freezes/resumes animations + logs
+// • Step = one full cycle incl. retransmits (faster ~4s), disables button during run
+// • True Go-Back-N (window N, timeout → retransmit base..nextSeq-1), ACK after arrival
 
 (function () {
-  // ===== mount root (in case index.html only has <div id="app"></div>) =====
+  // ========= root & minimal CSS (including .hidden!) =========
   let root = document.getElementById("app");
-  if (!root) {
-    root = document.createElement("div");
-    root.id = "app";
-    document.body.appendChild(root);
-  }
+  if (!root) { root = document.createElement("div"); root.id = "app"; document.body.appendChild(root); }
 
-  // ===== UI scaffold (light theme, no guide line in header; footer handled by HTML) =====
+  const style = document.createElement("style");
+  style.textContent = `
+    .hidden{ display:none !important; }
+    .stat-card{background:#fff;border:1px solid rgba(0,0,0,.06);border-radius:12px;padding:8px}
+    .stat-label{color:#3e5566;font-size:12px}
+    .stat-value{color:#0b1e2b;font-weight:700;font-size:16px;margin-top:4px}
+    button{background:#0b1e2b;color:#fff;border:none;border-radius:10px;padding:8px 12px;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+  `;
+  document.head.appendChild(style);
+
+  // ========= UI scaffold (light) =========
   root.innerHTML = `
     <header class="glass" style="background:rgba(255,255,255,.7);border:1px solid rgba(0,0,0,.06);padding:14px 16px;border-radius:16px;margin:12px auto;max-width:1100px">
       <h1 style="margin:0 0 4px;color:#0b1e2b;font-size:24px">Go-Back-N ARQ — Visual Simulator</h1>
       <p style="margin:0 0 8px;color:#314a5a">Sliding window up to N. Timeout → retransmit from base. ACKs only after arrival.</p>
 
       <div class="controls" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">
-        <label>Number of frames
-          <input id="numFrames" type="number" min="1" max="300" value="12">
-        </label>
+        <label>Number of frames <input id="numFrames" type="number" min="1" max="300" value="12"></label>
+        <label>Window size (N)   <input id="winSize"   type="number" min="1" max="32"  value="4"></label>
+        <label>Timeout (ms)      <input id="timeout"   type="number" min="2000"       value="6000"></label>
 
-        <label>Window size (N)
-          <input id="winSize" type="number" min="1" max="32" value="4">
-        </label>
-
-        <label>Timeout (ms)
-          <input id="timeout" type="number" min="2000" value="6000">
-        </label>
-
-        <label>Loss %
-          <input id="lossPercent" type="range" min="0" max="80" value="15">
-          <span id="lossPercentVal">15%</span>
-        </label>
+        <label>Loss % <input id="lossPercent" type="range" min="0" max="80" value="15"> <span id="lossPercentVal">15%</span></label>
 
         <label>Frame Loss Mode
           <select id="lossMode">
@@ -49,11 +43,9 @@
             <option value="none">None</option>
           </select>
         </label>
-
         <label id="wrapSpecific" class="hidden">Specific frames (comma)
           <input id="specificFrames" type="text" placeholder="e.g. 2,7,9">
         </label>
-
         <label id="wrapEveryK" class="hidden">k (every k-th)
           <input id="everyK" type="number" min="1" value="3">
         </label>
@@ -65,23 +57,15 @@
             <option value="everyk">Delay every k-th</option>
           </select>
         </label>
-
         <label id="wrapDelaySpec" class="hidden">Delay frame # / k
           <input id="frameDelaySpec" type="text" placeholder="e.g. 5 or 3">
         </label>
-
         <label id="wrapDelayMs" class="hidden">Frame delay (ms)
           <input id="frameDelayMs" type="number" min="0" value="1200">
         </label>
 
-        <label>ACK Loss %
-          <input id="ackLossPercent" type="range" min="0" max="80" value="5">
-          <span id="ackLossVal">5%</span>
-        </label>
-
-        <label>ACK Delay (ms)
-          <input id="ackDelayMs" type="number" min="0" value="800">
-        </label>
+        <label>ACK Loss % <input id="ackLossPercent" type="range" min="0" max="80" value="5"> <span id="ackLossVal">5%</span></label>
+        <label>ACK Delay (ms)    <input id="ackDelayMs"    type="number" min="0"        value="800"></label>
 
         <label>Simulation Mode
           <select id="simMode">
@@ -157,7 +141,7 @@
     </section>
   `;
 
-  // ===== Inputs styling =====
+  // ========= Inputs styling =========
   document.querySelectorAll(".controls input, .controls select").forEach(el=>{
     el.style.background = "rgba(255,255,255,.95)";
     el.style.color = "#0b1e2b";
@@ -169,7 +153,7 @@
     el.style.opacity = "1";
   });
 
-  // ===== Refs =====
+  // ========= Refs =========
   const $ = s => document.querySelector(s);
   const numFramesEl = $("#numFrames"), winSizeEl = $("#winSize"), timeoutEl = $("#timeout");
   const lossPercentEl = $("#lossPercent"), lossPercentVal = $("#lossPercentVal");
@@ -186,7 +170,7 @@
   const channelStage = $("#channelStage"), liveSvg = $("#liveSvg"), events = $("#events");
   const statsWrap = $("#statsWrap"), diagramHost = $("#diagramHost");
 
-  // ===== Strict dropdown visibility =====
+  // ========= Strict dropdown visibility =========
   function applyStrictVisibility(){
     const lm = lossModeEl.value;
     wrapSpecific.classList.toggle("hidden", lm !== "specific");
@@ -207,44 +191,17 @@
   frameDelayModeEl.addEventListener("change", applyStrictVisibility);
   diagramTypeEl.addEventListener("change", updateDiagramLabel);
 
-  // ===== Utils =====
+  // ========= Utils =========
   const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
   const parseNums = t => !t?[]:t.split(",").map(s=>parseInt(s.trim(),10)).filter(n=>!isNaN(n));
   const sleep = ms => new Promise(r=>setTimeout(r,ms));
   const setTxt = (sel, txt) => { const n=document.querySelector(sel); if(n) n.textContent=txt; };
   const log = m => events.prepend(Object.assign(document.createElement("div"), { textContent: `[${new Date().toLocaleTimeString()}] ${m}` }));
 
-  // ===== Animation framework (pausable RAF for lines + bubbles) =====
+  // ========= Animations (pausable) =========
   let PAUSED = false;
-  function pauseAll(){ PAUSED = true; log("Simulation paused."); }
-  function resumeAll(){ PAUSED = false; log("Simulation resumed."); }
-
-  async function rafProgress(durationMs){
-    // returns a promise that resolves when elapsed=durationMs; respects PAUSED
-    return new Promise(resolve=>{
-      const start = performance.now();
-      let pausedAt = null;
-      function tick(t){
-        if(PAUSED){
-          if(pausedAt === null) pausedAt = t;
-          requestAnimationFrame(tick);
-          return;
-        }
-        if(pausedAt !== null){
-          // shift start by paused duration
-          const pausedDelta = t - pausedAt;
-          pausedAt = null;
-          // adjust start forward so elapsed ignores paused time
-          startTimeShift += pausedDelta;
-        }
-        const elapsed = t - start - startTimeShift;
-        const k = Math.min(1, elapsed / durationMs);
-        if(k >= 1) resolve(); else requestAnimationFrame(tick);
-      }
-      let startTimeShift = 0;
-      requestAnimationFrame(tick);
-    });
-  }
+  function pauseAll(){ if(!PAUSED){ PAUSED = true; log("Simulation paused."); } }
+  function resumeAll(){ if(PAUSED){ PAUSED = false; log("Simulation resumed."); } }
 
   function animateLinePausable(x1,y1,x2,y2,color,dashed,durationMs){
     const ln = document.createElementNS("http://www.w3.org/2000/svg","line");
@@ -262,10 +219,7 @@
       const start = performance.now();
       let pausedAt = null, shift = 0;
       function step(t){
-        if(PAUSED){
-          if(pausedAt===null) pausedAt=t;
-          requestAnimationFrame(step); return;
-        }
+        if(PAUSED){ if(pausedAt===null) pausedAt=t; requestAnimationFrame(step); return; }
         if(pausedAt!==null){ shift += (t - pausedAt); pausedAt=null; }
         const elapsed = t - start - shift;
         const k = Math.min(1, elapsed/durationMs);
@@ -283,10 +237,7 @@
       const start = performance.now();
       let pausedAt = null, shift = 0;
       function step(t){
-        if(PAUSED){
-          if(pausedAt===null) pausedAt=t;
-          requestAnimationFrame(step); return;
-        }
+        if(PAUSED){ if(pausedAt===null) pausedAt=t; requestAnimationFrame(step); return; }
         if(pausedAt!==null){ shift += (t - pausedAt); pausedAt=null; }
         const elapsed = t - start - shift;
         const k = Math.min(1, elapsed/durationMs);
@@ -300,44 +251,29 @@
   }
 
   function bubble(text, title, pos, type){
-    // type: "frame" (blue), "ack" (green), "lost" (red tint)
     const d = document.createElement("div");
-    d.className = "pkt";
-    d.title = title;
-    d.textContent = text;
-    d.style.position = "absolute";
-    d.style.left = pos.x + "px";
-    d.style.top  = pos.y + "px";
-    d.style.width = "26px";
-    d.style.height = "26px";
-    d.style.borderRadius = "50%";
-    d.style.display = "grid";
-    d.style.placeItems = "center";
-    d.style.color = "#fff";
-    d.style.fontSize = "11px";
-    d.style.userSelect = "none";
-    d.style.opacity = "0";
-
-    if(type === "frame"){ d.style.background = "#2a6bff"; d.style.boxShadow = "0 2px 10px rgba(42,107,255,.25)"; }
-    else if(type === "ack"){ d.style.background = "#1faa8a"; d.style.boxShadow = "0 2px 10px rgba(31,170,138,.25)"; }
-    else if(type === "lost"){ d.style.background = "#ff6b6b"; d.style.boxShadow = "0 2px 10px rgba(255,107,107,.25)"; }
-
-    channelStage.appendChild(d);
-    return d;
+    d.className = "pkt"; d.title = title; d.textContent = text;
+    d.style.position="absolute"; d.style.left=pos.x+"px"; d.style.top=pos.y+"px";
+    d.style.width="26px"; d.style.height="26px"; d.style.borderRadius="50%";
+    d.style.display="grid"; d.style.placeItems="center"; d.style.color="#fff"; d.style.fontSize="11px";
+    d.style.userSelect="none"; d.style.opacity="0";
+    if(type==="frame"){ d.style.background="#2a6bff"; d.style.boxShadow="0 2px 10px rgba(42,107,255,.25)"; }
+    else if(type==="ack"){ d.style.background="#1faa8a"; d.style.boxShadow="0 2px 10px rgba(31,170,138,.25)"; }
+    else { d.style.background="#ff6b6b"; d.style.boxShadow="0 2px 10px rgba(255,107,107,.25)"; }
+    channelStage.appendChild(d); return d;
   }
 
-  // ===== GBN state =====
+  // ========= GBN state =========
   let N, timeout, lossProb, ackLossProb;
   let base, nextSeq, seqLimit;
-  let running=false;
+  let running=false, stepMode=false;
   let timer=null;
-  let stepMode=false;
 
   const record = new Map(); // seq -> {sentCount, delivered, acked}
   const stats = { totalFrames:0, totalTrans:0, totalAcks:0, framesLost:0, acksLost:0, framesDelayed:0, framesDelivered:0 };
   const diagram = { frames:[], acks:[] };
 
-  // ===== Geometry =====
+  // ========= Geometry =========
   function endpoints(seq){
     const cont = liveSvg.getBoundingClientRect();
     const width = cont.width || 800;
@@ -353,7 +289,7 @@
              ackStart:{x:rightX, y:baseY},  ackEnd:{x:leftX, y:baseY-2} };
   }
 
-  // ===== probabilities =====
+  // ========= Probabilities =========
   function shouldLoseFrame(seq){
     const m = lossModeEl.value;
     if(m==="none") return false;
@@ -370,32 +306,30 @@
     return false;
   }
 
-  // ===== timings (normal vs step) =====
+  // ========= Timings (normal vs step) =========
   const NORMAL = { DOWN:2000, PROC:600, ACK:2000 };
-  const STEP   = { DOWN:1600, PROC:400, ACK:1600 }; // ≈4s per cycle
-  function T() { return stepMode ? STEP : NORMAL; }
+  const STEP   = { DOWN:1600, PROC:400, ACK:1600 }; // ≈4s cycle
+  const T = ()=> stepMode ? STEP : NORMAL;
 
-  // ===== timer helpers =====
+  // ========= Timer helpers =========
   function startTimer(){ clearTimer(); timer = setTimeout(onTimeout, timeout); }
   function clearTimer(){ if(timer){ clearTimeout(timer); timer=null; } }
 
-  // ===== init =====
+  // ========= Init =========
   function init(){
     N = clamp(parseInt(winSizeEl.value,10)||4, 1, 32);
     timeout = clamp(parseInt(timeoutEl.value,10)||6000, 2000, 60000);
     lossProb = (parseInt(lossPercentEl.value,10)||0)/100;
     ackLossProb = (parseInt(ackLossPercentEl.value,10)||0)/100;
 
-    base = 0; nextSeq = 0;
+    base = 0; nextSeq = 0; running=false; stepMode=false; PAUSED=false; clearTimer();
     seqLimit = clamp(parseInt(numFramesEl.value,10)||12, 1, 300);
-    running = false; stepMode = false; PAUSED = false; clearTimer();
     record.clear();
-
     Object.assign(stats, { totalFrames:seqLimit, totalTrans:0,totalAcks:0,framesLost:0,acksLost:0,framesDelayed:0,framesDelivered:0 });
-    diagram.frames = []; diagram.acks = [];
+    diagram.frames=[]; diagram.acks=[];
 
-    senderWindow.innerHTML = ""; senderQueue.innerHTML = ""; recvArea.innerHTML = "";
-    liveSvg.innerHTML = ""; events.innerHTML = ""; statsWrap.classList.add("hidden"); diagramHost.innerHTML="";
+    senderWindow.innerHTML=""; senderQueue.innerHTML=""; recvArea.innerHTML="";
+    liveSvg.innerHTML=""; events.innerHTML=""; statsWrap.classList.add("hidden"); diagramHost.innerHTML="";
 
     for(let i=0;i<N;i++){
       const d=document.createElement("div");
@@ -403,12 +337,12 @@
       d.style.cssText="background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.12);padding:6px 8px;border-radius:10px;margin-bottom:6px";
       senderWindow.appendChild(d);
     }
-    applyStrictVisibility();
-    updateDiagramLabel();
-    log("Ready — true Go-Back-N. Pick your options and Start.");
+    applyStrictVisibility(); updateDiagramLabel();
+    log("Ready — true Go-Back-N. Pick options and Start.");
+    stepBtn.disabled = false;
   }
 
-  // ===== GBN core =====
+  // ========= Timeout (GBN retransmit) =========
   async function onTimeout(){
     if(!running) return;
     if(base < nextSeq){
@@ -433,12 +367,14 @@
       await sendFrame(nextSeq);
       nextSeq++; refreshWindow();
       if(base === nextSeq-1) startTimer();
-      if(stepMode) break; // in normal start, we fill; in step we send only target seq
+      if(stepMode) break; // in step we only kick one frame, then we wait for its completion
     }
   }
 
+  // ========= Send / RTX / ACK =========
   async function sendFrame(seq){
-    const rec = record.get(seq) || { sentCount:0, delivered:false, acked:false }; rec.sentCount++; record.set(seq,rec);
+    const rec = record.get(seq) || { sentCount:0, delivered:false, acked:false };
+    rec.sentCount++; record.set(seq,rec);
     stats.totalTrans++;
 
     const badge=document.createElement("div");
@@ -462,18 +398,18 @@
       pkt.style.opacity=".55";
       log(`Frame ${seq} lost in channel.`);
       stats.framesLost++; diagram.frames.push({seq, delivered:false});
-      await sleep(250); pkt.remove(); return;
+      await sleep(200); pkt.remove(); return;
     }
 
     pkt.remove(); diagram.frames.push({seq, delivered:true}); rec.delivered = true;
     await sleep(T().PROC);
-    await receiverHandle(seq, geom); // ACK after arrival only
+    await receiverHandle(seq, geom); // ACK only after arrival
   }
 
   async function retransmitFrame(seq){
     if(!running) return;
-    const rec = record.get(seq) || { sentCount:0, delivered:false, acked:false }; rec.sentCount++; record.set(seq,rec);
-    stats.totalTrans++;
+    const rec = record.get(seq) || { sentCount:0, delivered:false, acked:false };
+    rec.sentCount++; record.set(seq,rec); stats.totalTrans++;
 
     const geom = endpoints(seq);
     const lose = shouldLoseFrame(seq);
@@ -488,7 +424,7 @@
       pkt.style.opacity=".55";
       log(`(RTX) Frame ${seq} lost again.`);
       stats.framesLost++; diagram.frames.push({seq, delivered:false});
-      await sleep(200); pkt.remove(); return;
+      await sleep(180); pkt.remove(); return;
     }
 
     pkt.remove(); diagram.frames.push({seq, delivered:true});
@@ -524,7 +460,7 @@
       ackPkt.style.opacity=".55";
       log(`ACK ${ackNum} lost — sender will timeout.`);
       stats.acksLost++; diagram.acks.push({seq:ackNum, delivered:false});
-      await sleep(200); ackPkt.remove(); return;
+      await sleep(180); ackPkt.remove(); return;
     }
 
     ackPkt.remove(); diagram.acks.push({seq:ackNum, delivered:true});
@@ -536,15 +472,12 @@
       base = ackNum + 1;
       refreshWindow();
       if(base === nextSeq) clearTimer(); else startTimer();
-
-      // pump more in normal mode
       if(!stepMode) pumpWindow();
-
       if(base >= seqLimit) finish();
     }
   }
 
-  // ===== Summary diagram render =====
+  // ========= Summary =========
   function finish(){
     running=false; clearTimer(); log("Simulation complete — composing summary…");
     const delivered = stats.framesDelivered;
@@ -575,7 +508,7 @@
     return renderTextbook(host, diag, rows, mode==="animated");
   }
 
-  // Simple SVG helpers
+  // ==== SVG helpers ====
   const ns = n=>document.createElementNS("http://www.w3.org/2000/svg", n);
   function svgEl(w,h){ const s=ns("svg"); s.setAttribute("viewBox",`0 0 ${w} ${h}`); s.setAttribute("width","100%"); s.setAttribute("height",h); return s; }
   function vline(x,y1,y2,c){ const l=line(x,y1,x,y2,c,2); l.setAttribute("opacity",".6"); return l; }
@@ -615,38 +548,39 @@
     host.appendChild(svg);
   }
 
-  // ===== Controls =====
+  // ========= Controls =========
   startBtn.addEventListener("click", async ()=>{
-    if(!running){ running=true; stepMode=false; log(`Started — mode: ${simModeEl.value}`); await pumpWindow(); }
-    // if paused, resume
-    if(PAUSED) resumeAll();
+    // resume if paused
+    if(PAUSED){ resumeAll(); return; }
+    // start if not running
+    if(!running){
+      running = true; stepMode = false;
+      log(`Started — mode: ${simModeEl.value}`);
+      await pumpWindow();
+    }
   });
 
-  pauseBtn.addEventListener("click", ()=>{ if(!PAUSED) pauseAll(); });
+  pauseBtn.addEventListener("click", ()=>{ pauseAll(); });
 
   stepBtn.addEventListener("click", async ()=>{
-    if(running && !PAUSED) return; // avoid stepping mid-run
-    running = true; stepMode = true;
-    // Unpause if paused, but don't start window pump beyond one frame
+    if(running && !PAUSED) return; // don't step mid-run
+    running = true; stepMode = true; stepBtn.disabled = true;
     if(PAUSED) resumeAll();
-    // In step mode: run exactly one target seq (with retransmissions until acked)
-    const startSeq = nextSeq;
-    if(startSeq >= seqLimit){ log("Step: all frames completed."); running=false; return; }
-    // send first attempt
-    if(startSeq < base + N) {
-      await sendFrame(startSeq); nextSeq++; refreshWindow();
+
+    const target = nextSeq;
+    if(target >= seqLimit){ log("Step: all frames completed."); running=false; stepBtn.disabled=false; return; }
+
+    if(target < base + N){
+      await sendFrame(target); nextSeq++; refreshWindow();
       if(base === nextSeq-1) startTimer();
     }
-    // wait until this specific frame gets cumulatively acked
-    while(base <= startSeq){
-      await sleep(80);
-      if(!running) break;
-    }
-    running = false; // stop after this frame's cycle completes
+    // Wait until cumulative ACK slides past target
+    while(base <= target){ await sleep(60); }
+    running = false; stepBtn.disabled = false;
   });
 
   resetBtn.addEventListener("click", ()=>{ init(); log("Reset."); });
 
-  // ===== Boot =====
-  init();
+  // ========= Boot =========
+  applyStrictVisibility(); updateDiagramLabel(); init();
 })();
