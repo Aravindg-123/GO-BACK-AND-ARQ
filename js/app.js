@@ -1,27 +1,26 @@
-// js/app.js — Cinematic Neon Go-Back-N ARQ Simulator (slow, with lines + stats)
-// Folder layout: index.html, css/style.css, js/app.js
-
+// js/app.js — Left→Right Cinematic Go-Back-N (responsive, slow, with lines + conditional controls)
 (function () {
-  // ---------- DOM bootstrap (we build the whole UI into #app) ----------
+  // Build UI inside #app
   const app = document.getElementById("app");
   app.innerHTML = `
     <header class="glass">
-      <h1>Go-Back-N ARQ — Neon Glass Simulator</h1>
-      <p>Vertical flow • packets fall (down) • ACKs rise (up) • summary appears after the final ACK</p>
+      <h1>Go-Back-N ARQ — Neon Glass</h1>
+      <p>Sender (left) → Receiver (right). Packets glide right; ACKs glide left. Summary appears only after the last ACK.</p>
       <div class="controls">
         <label>Number of frames
-          <input id="numFrames" type="number" min="1" max="200" value="12">
+          <input id="numFrames" type="number" min="1" max="300" value="12">
         </label>
         <label>Window size (N)
-          <input id="winSize" type="number" min="1" max="20" value="4">
+          <input id="winSize" type="number" min="1" max="32" value="4">
         </label>
         <label>Timeout (ms)
-          <input id="timeout" type="number" min="200" value="2000">
+          <input id="timeout" type="number" min="400" value="3500">
         </label>
         <label>Loss %
           <input id="lossPercent" type="range" min="0" max="80" value="10">
           <span id="lossPercentVal">10%</span>
         </label>
+
         <label>Frame Loss Mode
           <select id="lossMode">
             <option value="random">Random (by Loss %)</option>
@@ -30,10 +29,10 @@
             <option value="none">None</option>
           </select>
         </label>
-        <label id="specificFrameLabel" style="display:none">Specific frames (comma)
+        <label id="labelSpecific" class="hidden">Specific frames (comma)
           <input id="specificFrames" type="text" placeholder="e.g. 2,7,9">
         </label>
-        <label id="everyKLabel" style="display:none">k (every k-th)
+        <label id="labelEveryK" class="hidden">k (every k-th)
           <input id="everyK" type="number" min="1" value="3">
         </label>
 
@@ -44,11 +43,11 @@
             <option value="everyk">Delay every k-th</option>
           </select>
         </label>
-        <label id="frameDelayLabel" style="display:none">Delay frame # / k
+        <label id="labelDelaySpec" class="hidden">Delay frame # / k
           <input id="frameDelaySpec" type="text" placeholder="e.g. 5 or 3,6">
         </label>
-        <label>Frame delay (ms)
-          <input id="frameDelayMs" type="number" min="0" value="800">
+        <label id="labelDelayMs" class="hidden">Frame delay (ms)
+          <input id="frameDelayMs" type="number" min="0" value="1200">
         </label>
 
         <label>ACK Loss %
@@ -56,9 +55,10 @@
           <span id="ackLossVal">5%</span>
         </label>
         <label>ACK Delay (ms)
-          <input id="ackDelayMs" type="number" min="0" value="500">
+          <input id="ackDelayMs" type="number" min="0" value="800">
         </label>
       </div>
+
       <div class="buttons">
         <button id="startBtn">Start</button>
         <button id="pauseBtn">Pause</button>
@@ -74,10 +74,8 @@
         <div class="queue" id="senderQueue"></div>
       </div>
 
-      <div class="channel" id="channelLane">
-        <h3 style="margin-bottom:10px">Channel</h3>
-        <!-- We’ll draw animated packets, ACKs and neon lines inside this container -->
-        <div id="channelStage" style="position:relative;width:100%;height:360px;"></div>
+      <div class="channel glass" id="channel">
+        <div id="channelStage"></div>
       </div>
 
       <div class="lane" id="receiverLane">
@@ -87,12 +85,12 @@
     </section>
 
     <section class="glass">
-      <h3 style="text-align:center;margin-bottom:8px;color:#00ffff">Event Log</h3>
-      <div class="log" id="events"></div>
+      <h3 style="text-align:center;color:#00ffff;margin-bottom:6px">Event Log</h3>
+      <div id="events" class="log"></div>
     </section>
 
-    <section class="glass" id="statsWrap" style="display:none">
-      <h3 style="text-align:center;margin-bottom:8px;color:#00ffff">Summary & Statistics</h3>
+    <section class="glass hidden" id="statsWrap">
+      <h3 style="text-align:center;color:#00ffff;margin-bottom:6px">Summary & Statistics</h3>
       <div class="stats">
         <div>Total original frames: <span id="stat_totalFrames">0</span></div>
         <div>Total transmissions (incl. retransmissions): <span id="stat_totalTrans">0</span></div>
@@ -103,29 +101,31 @@
         <div>Efficiency: <span id="stat_efficiency">0%</span></div>
         <div>Loss percent (frames/transmissions): <span id="stat_lossPercent">0%</span></div>
       </div>
-      <div style="margin-top:14px">
-        <h4 style="margin-bottom:6px;color:#8ba2b7">Flow Diagram (final timeline)</h4>
-        <div class="log" id="flowDiagram" style="max-height:260px"></div>
+      <div style="margin-top:10px">
+        <h4 style="color:#a9c2d6;margin-bottom:6px">Flow Diagram (final)</h4>
+        <div id="flowDiagram" class="log" style="max-height:260px"></div>
       </div>
     </section>
 
-    <footer>Made for CN project — slow cinematic Go-Back-N with neon lines ✨</footer>
+    <footer>CN Project • Go-Back-N • neon cinema 😎</footer>
   `;
 
-  // ---------- Element refs ----------
+  // --- DOM refs
+  const $ = s => document.querySelector(s);
   const numFramesEl = $("#numFrames");
   const winSizeEl = $("#winSize");
   const timeoutEl = $("#timeout");
   const lossPercentEl = $("#lossPercent");
   const lossPercentVal = $("#lossPercentVal");
   const lossModeEl = $("#lossMode");
-  const specificFrameLabel = $("#specificFrameLabel");
+  const labelSpecific = $("#labelSpecific");
   const specificFramesEl = $("#specificFrames");
-  const everyKLabel = $("#everyKLabel");
+  const labelEveryK = $("#labelEveryK");
   const everyKEl = $("#everyK");
 
   const frameDelayModeEl = $("#frameDelayMode");
-  const frameDelayLabel = $("#frameDelayLabel");
+  const labelDelaySpec = $("#labelDelaySpec");
+  const labelDelayMs = $("#labelDelayMs");
   const frameDelaySpecEl = $("#frameDelaySpec");
   const frameDelayMsEl = $("#frameDelayMs");
 
@@ -146,336 +146,257 @@
   const statsWrap = $("#statsWrap");
   const flowDiagram = $("#flowDiagram");
 
-  // ---------- Helpers ----------
-  function $(q) { return document.querySelector(q); }
-  function el(tag, cls, txt) {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (txt != null) e.textContent = txt;
-    return e;
-  }
-  function log(msg) {
-    const d = el("div", null, `[${new Date().toLocaleTimeString()}] ${msg}`);
-    events.prepend(d);
-  }
-  function parseNumList(txt) {
-    if (!txt) return [];
-    return txt.split(",").map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-  }
-
-  // UI reactions
+  // --- UI: conditional inputs + labels
+  const updateLossUI = () => {
+    const v = lossModeEl.value;
+    labelSpecific.classList.toggle("hidden", v !== "specific");
+    labelEveryK.classList.toggle("hidden", v !== "everyk");
+  };
+  const updateDelayUI = () => {
+    const v = frameDelayModeEl.value;
+    const on = v !== "none";
+    labelDelaySpec.classList.toggle("hidden", !on);
+    labelDelayMs.classList.toggle("hidden", !on);
+  };
   lossPercentEl.addEventListener("input", () => (lossPercentVal.textContent = lossPercentEl.value + "%"));
   ackLossPercentEl.addEventListener("input", () => (ackLossVal.textContent = ackLossPercentEl.value + "%"));
-  lossModeEl.addEventListener("change", () => {
-    const v = lossModeEl.value;
-    specificFrameLabel.style.display = v === "specific" ? "" : "none";
-    everyKLabel.style.display = v === "everyk" ? "" : "none";
-  });
-  frameDelayModeEl.addEventListener("change", () => {
-    const v = frameDelayModeEl.value;
-    frameDelayLabel.style.display = v === "none" ? "none" : "";
-  });
+  lossModeEl.addEventListener("change", updateLossUI);
+  frameDelayModeEl.addEventListener("change", updateDelayUI);
 
-  // ---------- Simulation State ----------
+  // --- State
   let N, timeout, lossProb, ackLossProb;
   let base, nextseq, seqLimit;
-  let sentFrames; // [{seq, acked, dom, sends}]
+  let sentFrames = []; // {seq, acked, sends, dom}
   let running = false;
-  let mainTimer = null;
+  let timer = null;
 
   const stats = {
     totalFrames: 0, totalTrans: 0, totalAcks: 0,
     framesLost: 0, acksLost: 0, framesDelayed: 0
   };
 
-  // ---------- Init / Reset ----------
+  // --- Init/Reset
   function init() {
-    N = clamp(parseInt(winSizeEl.value, 10) || 4, 1, 50);
-    timeout = clamp(parseInt(timeoutEl.value, 10) || 2000, 200, 60000);
+    N = clamp(parseInt(winSizeEl.value, 10) || 4, 1, 32);
+    timeout = clamp(parseInt(timeoutEl.value, 10) || 3500, 400, 60000);
     lossProb = (parseInt(lossPercentEl.value, 10) || 0) / 100;
     ackLossProb = (parseInt(ackLossPercentEl.value, 10) || 0) / 100;
 
     base = 0; nextseq = 0;
-    seqLimit = clamp(parseInt(numFramesEl.value, 10) || 12, 1, 500);
+    seqLimit = clamp(parseInt(numFramesEl.value, 10) || 12, 1, 300);
     sentFrames = [];
     running = false;
     clearTimer();
 
+    // stats
     stats.totalFrames = seqLimit;
     stats.totalTrans = 0; stats.totalAcks = 0;
     stats.framesLost = 0; stats.acksLost = 0; stats.framesDelayed = 0;
 
-    // wipe UI
+    // UI reset
     senderWindow.innerHTML = "";
     senderQueue.innerHTML = "";
     recvArea.innerHTML = "";
     channelStage.innerHTML = "";
     events.innerHTML = "";
-    statsWrap.style.display = "none";
+    statsWrap.classList.add("hidden");
     flowDiagram.innerHTML = "";
 
-    // build window slots
+    // build sender window slots
     for (let i = 0; i < N; i++) {
-      const f = el("div", "frame", (base + i) < seqLimit ? `#${base + i}` : "-");
-      senderWindow.appendChild(f);
+      const s = document.createElement("div");
+      s.className = "frame";
+      s.textContent = (base + i) < seqLimit ? `#${base + i}` : "-";
+      senderWindow.appendChild(s);
     }
-    log("Ready — press Start for cinematic Go-Back-N.");
-  }
-  function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
 
-  // ---------- Loss / Delay Rules ----------
-  function shouldLoseFrame(seq) {
+    updateLossUI();
+    updateDelayUI();
+    log("Ready — Start for slow cinematic left→right flow.");
+  }
+  const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+  const log = msg => events.prepend(Object.assign(document.createElement("div"),{textContent:`[${new Date().toLocaleTimeString()}] ${msg}`}));
+
+  // --- Rules
+  const parseNums = txt => !txt ? [] : txt.split(",").map(s=>parseInt(s.trim(),10)).filter(n=>!isNaN(n));
+  const shouldLose = seq => {
     const mode = lossModeEl.value;
     if (mode === "none") return false;
     if (mode === "random") return Math.random() < lossProb;
-    if (mode === "specific") return parseNumList(specificFramesEl.value).includes(seq);
-    if (mode === "everyk") {
-      const k = parseInt(everyKEl.value, 10) || 1;
-      return ((seq + 1) % k) === 0; // 1-based
-    }
+    if (mode === "specific") return parseNums(specificFramesEl.value).includes(seq);
+    if (mode === "everyk") { const k = parseInt(everyKEl.value,10)||1; return ((seq+1)%k)===0; }
     return false;
-  }
-  function shouldDelayFrame(seq) {
+  };
+  const shouldDelay = seq => {
     const mode = frameDelayModeEl.value;
     if (mode === "none") return false;
-    const spec = frameDelaySpecEl.value;
-    if (mode === "specific") return parseNumList(spec).includes(seq);
-    if (mode === "everyk") {
-      const k = parseInt(spec, 10) || 1;
-      return ((seq + 1) % k) === 0;
-    }
+    const spec = parseNums(frameDelaySpecEl.value);
+    if (mode === "specific") return spec.includes(seq);
+    if (mode === "everyk") { const k = parseInt(frameDelaySpecEl.value,10)||1; return ((seq+1)%k)===0; }
     return false;
-  }
+  };
 
-  // ---------- Window UI ----------
-  function refreshWindow() {
+  // --- Window UI refresh
+  function refreshWindow(){
     const frames = [...senderWindow.querySelectorAll(".frame")];
-    for (let i = 0; i < frames.length; i++) {
+    frames.forEach((f,i)=>{
       const seq = base + i;
-      const f = frames[i];
-      f.textContent = seq < seqLimit ? `#${seq}` : "-";
+      f.textContent = seq < seqLimit ? `#${seq}` : '-';
       f.classList.toggle("active", seq >= base && seq < nextseq && seq < seqLimit);
-    }
+    });
   }
 
-  // ---------- Sending Logic ----------
-  function sendIfPossible() {
-    while (nextseq < base + N && nextseq < seqLimit) {
+  // --- Core sending
+  function sendIfPossible(){
+    while(nextseq < base + N && nextseq < seqLimit){
       sendFrame(nextseq);
       nextseq++;
     }
     refreshWindow();
   }
 
-  function sendFrame(seq, isRetrans = false) {
-    // add packet badge in queue (for history)
-    const badge = el("div", "packet", `F${seq}`);
+  // Animated packet left→right
+  function sendFrame(seq, isRetrans=false){
+    // badge in queue
+    const badge = document.createElement("div");
+    badge.className = "packet";
     badge.style.position = "static";
+    badge.textContent = `F${seq}`;
     senderQueue.appendChild(badge);
 
-    // stats
     stats.totalTrans++;
 
-    // draw neon line + packet element in channel
-    const laneH = channelStage.clientHeight || 360;
-    const travelTime = slowTravelTime(seq); // cinematic
-    const startY = 10;           // near top (sender side)
-    const endY = laneH - 60;     // near bottom (receiver side)
+    // positions
+    const stg = channelStage.getBoundingClientRect();
+    const W = channelStage.clientWidth, H = channelStage.clientHeight;
+    const start = { x: 16,            y: 80 + (seq % 4) * 48 };
+    const end   = { x: W - 16 - 84,   y: start.y + 40 }; // slight down slope
 
     // line
-    const line = el("div");
-    line.style.position = "absolute";
-    line.style.left = "50%";
-    line.style.transform = "translateX(-50%)";
-    line.style.top = startY + "px";
-    line.style.width = "4px";
-    line.style.height = (endY - startY) + "px";
-    line.style.background = "linear-gradient(180deg, rgba(0,255,255,0.5), rgba(0,255,255,0.08))";
-    line.style.boxShadow = "0 0 12px rgba(0,255,255,0.3)";
-    line.style.borderRadius = "8px";
-    line.style.opacity = "0.55";
-
-    const pack = el("div", "packet", `F${seq}`);
-    pack.style.left = "50%";
-    pack.style.transform = "translateX(-50%) translateY(-40px)";
-    pack.style.top = startY + "px";
-
+    const line = document.createElement("div");
+    line.className = "neon-line";
+    placeLine(line, start, end);
     channelStage.appendChild(line);
-    channelStage.appendChild(pack);
 
-    // delay / loss decisions
-    const delayed = shouldDelayFrame(seq);
-    const extraDelay = delayed ? Math.max(0, parseInt(frameDelayMsEl.value, 10) || 0) : 0;
-    if (delayed) stats.framesDelayed++;
+    // packet
+    const p = document.createElement("div");
+    p.className = "packet";
+    p.textContent = `F${seq}`;
+    channelStage.appendChild(p);
 
-    const lose = shouldLoseFrame(seq);
+    // delay/loss decisions (very slow)
+    const delayed = shouldDelay(seq);
+    const extraDelay = delayed ? Math.max(0, parseInt(frameDelayMsEl.value,10)||0) : 0;
+    if (delayed) { p.classList.add("delayed"); stats.framesDelayed++; }
 
-    // animate down
-    const totalDown = travelTime + extraDelay;
-    animateDown(pack, startY, endY, totalDown);
+    const lose = shouldLose(seq);
 
-    // arrival / loss resolution
-    setTimeout(() => {
-      if (lose) {
-        pack.classList.add("lost");
+    // animate (3.2s base + delay)
+    const travel = 3200 + extraDelay;
+    animateLR(p, start, end, travel);
+
+    setTimeout(()=>{
+      if(lose){
+        p.classList.add("lost");
         log(`Frame ${seq} lost in channel.`);
-        setTimeout(() => {
-          channelStage.removeChild(pack);
-          // keep line for a bit for cinematic trail
-          fadeOut(line, 500);
-        }, 600);
-        // no ACK generated
+        stats.framesLost++;
+        setTimeout(()=>{ safeRemove(p); fadeLine(line); }, 700);
       } else {
-        // deliver to receiver
-        channelStage.removeChild(pack);
-        fadeOut(line, 500);
+        safeRemove(p); fadeLine(line);
         onReceiverGot(seq);
       }
-    }, totalDown + 60);
+    }, travel + 80);
 
-    // record sent frame if first time
-    let rec = sentFrames.find(s => s.seq === seq);
-    if (!rec) {
-      rec = { seq, acked: false, sends: 1, dom: badge };
-      sentFrames.push(rec);
-    } else {
-      rec.sends += 1;
-      badge.style.opacity = "0.9";
-    }
+    // record for window
+    let rec = sentFrames.find(s=>s.seq===seq);
+    if(!rec){ rec = {seq, acked:false, sends:1, dom:badge}; sentFrames.push(rec); }
+    else { rec.sends++; badge.style.opacity = "0.9"; }
 
-    // timer: if we sent the base frame, (re)start timer
-    if (base === seq) {
-      startTimer();
-    }
+    if(base === seq) startTimer();
   }
 
-  function slowTravelTime(seq) {
-    // Cinematic: base 1400ms + tiny per-seq offset for variety
-    return 1400 + (seq % 3) * 150;
-  }
-
-  // ---------- Receiver Logic ----------
-  function onReceiverGot(seq) {
+  // Receiver behaviour (GBN)
+  function onReceiverGot(seq){
     const expected = recvArea.childElementCount;
-    if (seq === expected) {
-      const block = el("div", "frame", `#${seq}`);
-      block.classList.add("active");
-      recvArea.appendChild(block);
-      log(`Receiver accepted frame ${seq}. Sending ACK ${seq}.`);
+    if(seq === expected){
+      const blk = document.createElement("div");
+      blk.className = "frame active";
+      blk.textContent = `#${seq}`;
+      recvArea.appendChild(blk);
+      log(`Receiver accepted ${seq}. Sending ACK ${seq}.`);
       sendAck(seq);
     } else {
       const ackFor = expected - 1;
-      log(`Receiver discarded frame ${seq} (expected ${expected}). Sending ACK ${ackFor}.`);
+      log(`Receiver discarded ${seq} (expected ${expected}). Sending ACK ${ackFor}.`);
       sendAck(ackFor);
     }
   }
 
-  // ---------- ACK Logic ----------
-  function sendAck(ackSeq) {
+  // Animated ACK right→left
+  function sendAck(ackSeq){
     stats.totalAcks++;
 
-    const laneH = channelStage.clientHeight || 360;
-    const startY = laneH - 60; // from bottom (receiver)
-    const endY = 10;           // to top (sender)
-    const ackDelay = Math.max(0, parseInt(ackDelayMsEl.value, 10) || 0);
-    const travelTime = 1300 + ackDelay; // cinematic up
+    const W = channelStage.clientWidth, H = channelStage.clientHeight;
+    const start = { x: W - 16 - 84, y: 80 + (ackSeq % 4) * 48 + 40 };
+    const end   = { x: 16,          y: start.y - 40 };
 
-    // line for ACK (blue)
-    const line = el("div");
-    line.style.position = "absolute";
-    line.style.left = "50%";
-    line.style.transform = "translateX(-50%)";
-    line.style.top = endY + "px";
-    line.style.width = "4px";
-    line.style.height = (startY - endY) + "px";
-    line.style.background = "linear-gradient(180deg, rgba(0,107,255,0.08), rgba(0,107,255,0.55))";
-    line.style.boxShadow = "0 0 12px rgba(0,107,255,0.3)";
-    line.style.borderRadius = "8px";
-    line.style.opacity = "0.55";
-
-    const ack = el("div", "packet ack", `ACK${ackSeq}`);
-    ack.style.left = "50%";
-    ack.style.transform = "translateX(-50%) translateY(40px)";
-    ack.style.top = startY + "px";
-
+    const line = document.createElement("div");
+    line.className = "neon-line neon-line-ack";
+    placeLine(line, start, end);
     channelStage.appendChild(line);
-    channelStage.appendChild(ack);
 
-    // simulate ACK loss
+    const a = document.createElement("div");
+    a.className = "packet ack";
+    a.textContent = `ACK${ackSeq}`;
+    channelStage.appendChild(a);
+
     const loseAck = Math.random() < ackLossProb;
+    const travel = 3000 + (parseInt(ackDelayMsEl.value,10) || 0);
+    animateLR(a, start, end, travel);
 
-    animateUp(ack, startY, endY, travelTime);
-
-    setTimeout(() => {
-      if (loseAck) {
-        ack.classList.add("lost");
+    setTimeout(()=>{
+      if(loseAck){
+        a.classList.add("lost");
         log(`ACK ${ackSeq} lost on return path.`);
         stats.acksLost++;
-        setTimeout(() => {
-          channelStage.removeChild(ack);
-          fadeOut(line, 500);
-        }, 600);
+        setTimeout(()=>{ safeRemove(a); fadeLine(line); }, 700);
       } else {
-        channelStage.removeChild(ack);
-        fadeOut(line, 500);
+        safeRemove(a); fadeLine(line);
         onAckReceived(ackSeq);
       }
-    }, travelTime + 60);
+    }, travel + 80);
   }
 
-  function onAckReceived(ackSeq) {
+  function onAckReceived(ackSeq){
     log(`Sender received ACK ${ackSeq}.`);
-    // cumulative ack
-    sentFrames.forEach(s => { if (s.seq <= ackSeq) s.acked = true; });
-
-    // slide window forward
-    while (sentFrames.length && sentFrames[0].acked) {
-      const removed = sentFrames.shift();
-      if (removed && removed.dom) {
-        removed.dom.style.background = "linear-gradient(180deg,#eafff7,#bff3e6)";
-        removed.dom.style.opacity = "1";
-      }
+    sentFrames.forEach(s=>{ if(s.seq <= ackSeq) s.acked = true; });
+    while(sentFrames.length && sentFrames[0].acked){
+      const r = sentFrames.shift();
+      if(r && r.dom){ r.dom.style.opacity="1"; r.dom.style.background="linear-gradient(180deg,#eafff7,#bff3e6)"; }
       base++;
     }
-
-    if (sentFrames.length > 0) startTimer(); else clearTimer();
+    if(sentFrames.length>0) startTimer(); else clearTimer();
     refreshWindow();
-
-    // send next frames if window has room
-    if (running) sendIfPossible();
-
-    // completion check
-    if (base >= seqLimit) {
-      completeSimulation();
-    }
+    if(running) sendIfPossible();
+    if(base >= seqLimit) finish();
   }
 
-  // ---------- Timer / Timeout ----------
-  function startTimer() {
-    clearTimer();
-    mainTimer = setTimeout(onTimeout, timeout);
-  }
-  function clearTimer() {
-    if (mainTimer) { clearTimeout(mainTimer); mainTimer = null; }
-  }
-  function onTimeout() {
-    log(`Timeout at base ${base}. Go-Back-N: retransmitting ${base}..${Math.min(base + N - 1, seqLimit - 1)}.`);
-    const outstanding = sentFrames.map(s => s.seq);
-    outstanding.forEach(seq => sendFrame(seq, true));
-    if (sentFrames.length > 0) startTimer();
+  // --- Timer/timeout (GBN)
+  function startTimer(){ clearTimer(); timer = setTimeout(onTimeout, timeout); }
+  function clearTimer(){ if(timer){ clearTimeout(timer); timer = null; } }
+  function onTimeout(){
+    log(`Timeout at base ${base}. Retransmitting ${base}..${Math.min(base+N-1, seqLimit-1)}.`);
+    const outstanding = sentFrames.map(s=>s.seq);
+    outstanding.forEach(q => sendFrame(q, true));
+    if(sentFrames.length>0) startTimer();
   }
 
-  // ---------- Completion / Stats ----------
-  function completeSimulation() {
-    clearTimer();
-    running = false;
-    log("Simulation complete. Preparing summary…");
+  // --- Finish + stats/flow
+  function finish(){
+    clearTimer(); running=false; log("Simulation complete. Preparing summary…");
+    const eff = stats.totalTrans ? (stats.totalFrames / stats.totalTrans) * 100 : 100;
+    const loss = stats.totalTrans ? (stats.framesLost / stats.totalTrans) * 100 : 0;
 
-    // compute stats
-    const eff = stats.totalTrans > 0 ? (stats.totalFrames / stats.totalTrans) * 100 : 100;
-    const lostPerc = stats.totalTrans > 0 ? (stats.framesLost / stats.totalTrans) * 100 : 0;
-
-    // write stats
     $("#stat_totalFrames").textContent = stats.totalFrames;
     $("#stat_totalTrans").textContent = stats.totalTrans;
     $("#stat_totalAcks").textContent = stats.totalAcks;
@@ -483,80 +404,53 @@
     $("#stat_acksLost").textContent = stats.acksLost;
     $("#stat_framesDelayed").textContent = stats.framesDelayed;
     $("#stat_efficiency").textContent = eff.toFixed(2) + "%";
-    $("#stat_lossPercent").textContent = lostPerc.toFixed(2) + "%";
+    $("#stat_lossPercent").textContent = loss.toFixed(2) + "%";
 
-    // build flow diagram from log (older → newer)
+    // Flow diagram = log in chronological order (top→bottom)
     flowDiagram.innerHTML = "";
-    const evs = Array.from(events.children).reverse();
-    evs.forEach(e => flowDiagram.appendChild(el("div", null, e.textContent)));
+    [...events.children].reverse().forEach(n=>{
+      const d = document.createElement("div");
+      d.textContent = n.textContent;
+      flowDiagram.appendChild(d);
+    });
 
-    statsWrap.style.display = "";
+    statsWrap.classList.remove("hidden");
   }
 
-  // ---------- Animations (down/up + fade) ----------
-  function animateDown(elm, startY, endY, ms) {
+  // --- Geometry + animation helpers
+  function placeLine(line, a, b){
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    const ang = Math.atan2(dy, dx) * 180 / Math.PI;
+    line.style.width = `${len}px`;
+    line.style.left = `${a.x}px`;
+    line.style.top  = `${a.y}px`;
+    line.style.transform = `rotate(${ang}deg)`;
+  }
+  function animateLR(elm, a, b, ms){
     elm.style.opacity = "1";
     const start = performance.now();
-    function step(t) {
-      const k = Math.min(1, (t - start) / ms);
-      const y = startY + (endY - startY) * easeCinematic(k);
-      elm.style.transform = `translateX(-50%) translateY(${y - startY - 40}px)`;
-      if (k < 1) requestAnimationFrame(step);
+    function step(t){
+      const k = Math.min(1,(t-start)/ms);
+      const e = ease(k);
+      const x = a.x + (b.x - a.x) * e;
+      const y = a.y + (b.y - a.y) * e;
+      elm.style.left = `${x}px`;
+      elm.style.top  = `${y}px`;
+      if(k<1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
   }
-  function animateUp(elm, startY, endY, ms) {
-    elm.style.opacity = "1";
-    const start = performance.now();
-    function step(t) {
-      const k = Math.min(1, (t - start) / ms);
-      const y = startY + (endY - startY) * easeCinematic(k);
-      elm.style.transform = `translateX(-50%) translateY(${y - startY + 40}px)`;
-      if (k < 1) requestAnimationFrame(step);
-    }
-    requestAnimationFrame(step);
-  }
-  function easeCinematic(k) {
-    // slow in-out curve for cinematic motion
-    return k < 0.5 ? 2 * k * k : -1 + (4 - 2 * k) * k;
-  }
-  function fadeOut(elm, ms) {
-    const start = performance.now();
-    function step(t) {
-      const k = Math.min(1, (t - start) / ms);
-      elm.style.opacity = String(1 - k);
-      if (k < 1) requestAnimationFrame(step);
-      else if (elm.parentNode) elm.parentNode.removeChild(elm);
-    }
-    requestAnimationFrame(step);
-  }
+  const ease = k => k<0.5 ? 2*k*k : -1 + (4-2*k)*k;
+  const fadeLine = (line)=>{ line.style.transition="opacity .5s"; line.style.opacity="0"; setTimeout(()=>safeRemove(line),520); };
+  const safeRemove = n => { if(n && n.parentNode) n.parentNode.removeChild(n); };
 
-  // ---------- Controls ----------
-  startBtn.addEventListener("click", () => {
-    if (running) return;
-    running = true;
-    log("Started.");
-    sendIfPossible();
-  });
-  pauseBtn.addEventListener("click", () => {
-    running = false;
-    clearTimer();
-    log("Paused.");
-  });
-  stepBtn.addEventListener("click", () => {
-    // Single step: send whatever fits now (one pass)
-    if (!running) {
-      const pre = nextseq;
-      sendIfPossible();
-      if (nextseq === pre) log("Step: no frame could be sent (window full or done).");
-      else log("Step: sent available frame(s).");
-    }
-  });
-  resetBtn.addEventListener("click", () => {
-    init();
-    log("Reset.");
-  });
+  // --- Controls
+  startBtn.addEventListener("click", ()=>{ if(running) return; running=true; log("Started."); sendIfPossible(); });
+  pauseBtn.addEventListener("click", ()=>{ running=false; clearTimer(); log("Paused."); });
+  stepBtn.addEventListener("click", ()=>{ if(!running){ const pre=nextseq; sendIfPossible(); if(nextseq===pre) log("Step: window full / finished."); }});
+  resetBtn.addEventListener("click", ()=>{ init(); log("Reset."); });
 
-  // ---------- Boot ----------
+  // Boot
   init();
 })();
