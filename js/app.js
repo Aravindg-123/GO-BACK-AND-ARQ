@@ -531,17 +531,32 @@ stepBtn.addEventListener("click", async ()=>{
 
   // Download: dump a simple JSON report + log
   // Download: dump a simple JSON report + log
-btnDownload.addEventListener("click", ()=>{
+// Download: enhanced version with pre-checks
+btnDownload.addEventListener("click", () => {
+  // Check if simulation started
+  if (!startTime) {
+    alert("Simulation hasn’t started yet. Please start and complete the process before downloading.");
+    return;
+  }
+  // Check if simulation still running
+  if (running) {
+    alert("Simulation is still running. Please wait until it completes to download the report.");
+    return;
+  }
+
   // collect input settings
   const data = {
     frames: numFramesEl.value,
     window: winSizeEl.value,
     timeout: timeoutEl.value,
-    ...
+    frameLoss: `${lossModeEl.value} (${lossPercentEl.value}%)`,
+    frameDelay: `${frameDelayModeEl.value} (${frameDelayMsEl.value} ms)`,
+    ackLoss: `${ackLossModeEl.value} (${ackLossPercentEl.value}%)`,
+    ackDelay: `${ackDelayMsEl.value} ms`
   };
-  ...
-  URL.revokeObjectURL(a.href);
-});
+
+  // grab simulation stats
+  const summary = `
 
   // ========= Boot =========
   init();
