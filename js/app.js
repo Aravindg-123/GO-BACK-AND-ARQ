@@ -529,8 +529,6 @@ stepBtn.addEventListener("click", async ()=>{
   btnHelp.addEventListener("click", ()=> open(modalHelp));
   closeBtns.forEach(b=> b.addEventListener("click", ()=> close($("#"+b.dataset.close))));
 
-  // Download: dump a simple JSON report + log
-  // Download: dump a simple JSON report + log
 // Download: enhanced version with pre-checks
 btnDownload.addEventListener("click", () => {
   // Check if simulation started
@@ -557,6 +555,48 @@ btnDownload.addEventListener("click", () => {
 
   // grab simulation stats
   const summary = `
+GO-BACK-N ARQ SIMULATION REPORT
+-----------------------------------
+Developed by: Sunesh Krishnan N & Aravind G
+Guided by: Dr. Swaminathan Annadurai
+
+INPUT PARAMETERS:
+-----------------
+• Number of frames       : ${data.frames}
+• Window size (N)        : ${data.window}
+• Timeout (ms)           : ${data.timeout}
+• Frame Loss Mode        : ${data.frameLoss}
+• Frame Delay Mode       : ${data.frameDelay}
+• ACK Loss Mode          : ${data.ackLoss}
+• ACK Delay              : ${data.ackDelay}
+
+RESULTS:
+---------
+• Total Frames           : ${stats.totalFrames}
+• Total Transmissions    : ${stats.totalTrans}
+• Frames Delivered       : ${stats.framesDelivered}
+• Frames Lost            : ${stats.framesLost}
+• Frames Delayed         : ${stats.framesDelayed}
+• ACKs Sent              : ${stats.totalAcks}
+• ACKs Lost              : ${stats.acksLost}
+• Efficiency             : ${document.querySelector("#stat_efficiency").textContent}
+• Frames per Second      : ${document.querySelector("#stat_fps").textContent}
+
+EVENT LOG:
+-----------
+${[...document.querySelectorAll("#events div")].map(d => d.textContent).join("\n")}
+-----------------------------------
+  `;
+
+  // download report
+  const blob = new Blob([summary], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "GBN_Simulation_Report.txt";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
 
   // ========= Boot =========
   init();
